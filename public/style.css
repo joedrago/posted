@@ -265,6 +265,44 @@ h1 {
     margin-bottom: 12px;
 }
 
+.path-segments {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px;
+    margin-bottom: 10px;
+}
+
+.path-segments .sep {
+    color: var(--line);
+    font-size: 12px;
+}
+
+.seg-btn {
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--fallback);
+    border-radius: 5px;
+    padding: 3px 8px;
+    font-size: 12px;
+    cursor: pointer;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.seg-btn:hover {
+    border-color: var(--fallback);
+}
+
+.seg-btn.active {
+    background: var(--fallback);
+    color: #0c0d10;
+    border-color: var(--fallback);
+    font-weight: 600;
+}
+
 .search-row {
     display: flex;
     flex-wrap: wrap;

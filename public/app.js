@@ -15,6 +15,7 @@ const candidatesEl = document.getElementById("candidates")
 const typeToggle = document.getElementById("type-toggle")
 const titleInput = document.getElementById("search-title")
 const seasonInput = document.getElementById("search-season")
+const pathSegmentsEl = document.getElementById("path-segments")
 
 const state = {
     path: null, // current directory when browsing; null = library list
@@ -189,6 +190,7 @@ function openPicker(entry) {
     }
 
     candidatesEl.replaceChildren()
+    pathSegmentsEl.replaceChildren()
     modal.classList.remove("hidden")
     runSearch() // initial search using server-inferred title/type/season
 }
@@ -225,10 +227,39 @@ async function runSearch(useInferred = true) {
             titleInput.value = body.query.title || ""
             seasonInput.value = body.query.season ?? ""
         }
+        renderSegments(body.segments)
         renderCandidates(body.candidates)
     } catch (err) {
         candidatesEl.replaceChildren(message(`error: ${err.message}`))
     }
+}
+
+// Clickable path chips: each types its cleaned segment into the search box and
+// re-runs the search. The chip matching the current title is highlighted.
+function renderSegments(segments) {
+    pathSegmentsEl.replaceChildren()
+    if (!segments || segments.length === 0) return
+
+    segments.forEach((seg, i) => {
+        if (i > 0) {
+            const sep = document.createElement("span")
+            sep.className = "sep"
+            sep.textContent = "›"
+            pathSegmentsEl.appendChild(sep)
+        }
+        const btn = document.createElement("button")
+        btn.className = "seg-btn"
+        btn.textContent = seg.label
+        btn.title = `Search "${seg.value}"`
+        if (seg.value && seg.value === titleInput.value.trim()) btn.classList.add("active")
+        btn.addEventListener("click", () => {
+            titleInput.value = seg.value
+            for (const b of pathSegmentsEl.querySelectorAll(".seg-btn")) b.classList.remove("active")
+            btn.classList.add("active")
+            runSearch(false)
+        })
+        pathSegmentsEl.appendChild(btn)
+    })
 }
 
 function renderCandidates(candidates) {

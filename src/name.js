@@ -6,19 +6,28 @@ const TAG_RE =
 const YEAR_RE = /\b(19|20)\d{2}\b/
 
 // Turn a raw file or directory name into a search-friendly { title, year }.
-// e.g. "Fight.Club.1999.1080p.BluRay" -> { title: "Fight Club", year: "1999" }
+// Handles the year either trailing the title ("Fight.Club.1999.1080p.BluRay")
+// or leading it ("1961 - 101 Dalmatians").
 export function parseName(rawName) {
     let s = rawName.replace(/[._]+/g, " ")
 
     const yearMatch = s.match(YEAR_RE)
     const year = yearMatch ? yearMatch[0] : null
-    if (yearMatch) s = s.slice(0, yearMatch.index)
+    if (yearMatch) {
+        const before = s.slice(0, yearMatch.index)
+        const after = s.slice(yearMatch.index + yearMatch[0].length)
+        // If the title text precedes the year, drop everything from the year on
+        // (trailing quality tags). If nothing but separators precede the year, it
+        // is a leading year — keep what follows instead.
+        s = /[a-z]/i.test(before) ? before : after
+    }
 
     s = s
         .replace(/[()[\]{}]/g, " ")
         .replace(TAG_RE, " ")
         .replace(/\s+/g, " ")
         .trim()
+        .replace(/^[-–—\s]+|[-–—\s]+$/g, "")
 
     return { title: s, year }
 }

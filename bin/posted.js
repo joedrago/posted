@@ -56,6 +56,28 @@ function parseArgs(argv) {
     return opts
 }
 
+// Live scan progress on stderr (not stdout, so `--list` output stays pipe-clean).
+// On a TTY it rewrites a single line; when redirected it prints only the final
+// summary so logs aren't flooded with intermediate updates.
+function makeScanReporter() {
+    const isTTY = process.stderr.isTTY
+    let last = 0
+
+    return (stats) => {
+        if (stats.done) {
+            const summary = `posted: scanned ${stats.dirs} folders — ${stats.videos} videos, ${stats.images} images`
+            process.stderr.write((isTTY ? "\r\x1b[K" : "") + summary + "\n")
+            return
+        }
+        if (!isTTY) return
+
+        const now = Date.now()
+        if (now - last < 100) return
+        last = now
+        process.stderr.write(`\r\x1b[Kposted: scanning ${stats.lib}… ${stats.dirs} folders, ${stats.videos} videos`)
+    }
+}
+
 function printMissing(index) {
     let missing = 0
     for (const video of index.videos) {
@@ -75,7 +97,7 @@ async function main() {
         return
     }
 
-    const index = await scanLibraries(opts.libraries)
+    const index = await scanLibraries(opts.libraries, { onProgress: makeScanReporter() })
 
     if (opts.list) {
         printMissing(index)

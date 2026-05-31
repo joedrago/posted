@@ -6,7 +6,7 @@ import os from "node:os"
 import { randomUUID } from "node:crypto"
 import { fileURLToPath } from "node:url"
 import { listLibraries, listChildren, listMissing, findRoot } from "./tree.js"
-import { inferQuery } from "./infer.js"
+import { inferQuery, pathSegments } from "./infer.js"
 import { searchPosters } from "./search.js"
 import { applyPoster } from "./write.js"
 import { saveConfig } from "./config.js"
@@ -113,7 +113,7 @@ async function search(index, cfg, url, res) {
     if (query.type === "movie") query.season = null
 
     const { candidates } = await searchPosters(cfg, query)
-    return sendJson(res, 200, { query, candidates })
+    return sendJson(res, 200, { query, candidates, segments: pathSegments(target, isDir, root) })
 }
 
 async function apply(index, cfg, req, res) {
