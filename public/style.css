@@ -407,6 +407,72 @@ h1 {
     color: #f7b955;
 }
 
+#bulk-btn {
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--text);
+    border-radius: 6px;
+    height: 32px;
+    padding: 0 12px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+#bulk-btn:hover {
+    border-color: var(--fallback);
+}
+
+.bulk-box {
+    width: min(440px, 100%);
+    padding: 22px;
+    gap: 14px;
+}
+
+.bulk-box h2 {
+    margin: 0 0 12px;
+    font-size: 17px;
+}
+
+.bulk-text {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 12px;
+    min-height: 18px;
+    word-break: break-word;
+}
+
+.bulk-bar {
+    height: 8px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.bulk-fill {
+    height: 100%;
+    width: 0;
+    background: var(--fallback);
+    transition: width 0.15s;
+}
+
+.bulk-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 16px;
+}
+
+.bulk-actions button {
+    background: var(--fallback);
+    color: #0c0d10;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
 .icon-btn {
     border: 1px solid var(--line);
     background: var(--bg);

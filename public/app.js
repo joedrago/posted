@@ -123,6 +123,7 @@ function renderBreadcrumb(crumbs) {
 }
 
 function renderGrid(entries) {
+    state.entries = entries // remembered so Bulk Fix can act on what's visible
     grid.replaceChildren()
     for (const entry of entries) grid.appendChild(makeCard(entry))
 }
@@ -353,6 +354,79 @@ function message(text) {
     el.textContent = text
     return el
 }
+
+// --- bulk fix ---------------------------------------------------------------
+
+const bulkModal = document.getElementById("bulk-modal")
+const bulkText = document.getElementById("bulk-text")
+const bulkFill = document.getElementById("bulk-fill")
+const bulkClose = document.getElementById("bulk-close")
+
+// Set a poster for every visible entry that is "missing" or "inherited" (never
+// "direct"), using the top search result for each. Because those entries have no
+// sidecar of their own, each write creates a new poster; if a destination
+// somehow already exists the apply returns needsConfirm and we skip it rather
+// than overwrite.
+async function bulkFix() {
+    const targets = (state.entries || []).filter((e) => e.posterKind === "missing" || e.posterKind === "fallback")
+    if (targets.length === 0) {
+        window.alert("Nothing to fix here — no missing or inherited posters are visible.")
+        return
+    }
+
+    const ok = window.confirm(
+        `Bulk Fix will set a poster for ${targets.length} item(s) — every visible "missing" or "inherited" entry — ` +
+            `using the top search result for each.\n\nItems that already have their own poster are left untouched. Continue?`
+    )
+    if (!ok) return
+
+    bulkText.textContent = `Starting… 0 / ${targets.length}`
+    bulkFill.style.width = "0%"
+    bulkClose.hidden = true
+    bulkModal.classList.remove("hidden")
+
+    let fixed = 0
+    let skipped = 0
+    let failed = 0
+
+    for (let i = 0; i < targets.length; i++) {
+        const entry = targets[i]
+        bulkText.textContent = `Fixing ${i + 1} / ${targets.length}: ${entry.name}`
+        bulkFill.style.width = `${Math.round((i / targets.length) * 100)}%`
+
+        try {
+            const params = new URLSearchParams({ path: entry.path, isDir: entry.type === "video" ? "0" : "1" })
+            const { body } = await getJson(`/api/search?${params.toString()}`)
+            const top = body.candidates?.[0]
+            if (!top) {
+                skipped++
+                continue
+            }
+            const { status } = await getJson("/api/apply", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    targetPath: entry.path,
+                    isDir: entry.type !== "video",
+                    imageUrl: top.url,
+                    overwrite: false
+                })
+            })
+            if (status === 200) fixed++
+            else skipped++ // 409 needsConfirm — leave existing poster alone
+        } catch {
+            failed++
+        }
+    }
+
+    bulkFill.style.width = "100%"
+    bulkText.textContent = `Done — ${fixed} set, ${skipped} skipped${failed ? `, ${failed} failed` : ""}.`
+    bulkClose.hidden = false
+    await render()
+}
+
+document.getElementById("bulk-btn").addEventListener("click", bulkFix)
+bulkClose.addEventListener("click", () => bulkModal.classList.add("hidden"))
 
 // --- events ----------------------------------------------------------------
 
