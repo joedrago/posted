@@ -170,3 +170,193 @@ h1 {
     color: var(--muted);
     font-size: 13px;
 }
+
+.edit-btn {
+    position: absolute;
+    bottom: 6px;
+    right: 6px;
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.6);
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.12s;
+}
+
+.card:hover .edit-btn {
+    opacity: 1;
+}
+
+.modal {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 24px;
+}
+
+.modal.hidden {
+    display: none;
+}
+
+.modal-box {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: min(960px, 100%);
+    max-height: 90vh;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.modal-close {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.modal-head {
+    display: flex;
+    gap: 16px;
+    padding: 18px;
+    border-bottom: 1px solid var(--line);
+}
+
+.modal-current {
+    width: 110px;
+    flex: 0 0 auto;
+}
+
+.modal-current .poster {
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+}
+
+.modal-controls {
+    flex: 1;
+    min-width: 0;
+}
+
+.modal-controls h2 {
+    margin: 0 0 4px;
+    font-size: 16px;
+}
+
+.modal-target {
+    color: var(--muted);
+    font-size: 12px;
+    word-break: break-all;
+    margin-bottom: 12px;
+}
+
+.search-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.search-row input,
+.search-row button {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 7px 10px;
+    font-size: 13px;
+}
+
+.search-row input {
+    flex: 1;
+    min-width: 120px;
+}
+
+.season-input {
+    flex: 0 0 90px;
+    min-width: 0;
+}
+
+.search-row button {
+    cursor: pointer;
+}
+
+.type-toggle {
+    display: inline-flex;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.type-toggle button {
+    border: none;
+    background: var(--bg);
+    color: var(--muted);
+    padding: 7px 12px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.type-toggle button.active {
+    background: var(--fallback);
+    color: #0c0d10;
+    font-weight: 600;
+}
+
+.candidates {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    /* This grid is height-constrained (it scrolls inside the modal). Without an
+       explicit row size, auto rows collapse to the aspect-ratio posters'
+       min-content height and .candidate's overflow:hidden clips them to a strip.
+       max-content sizes each row to the full poster + caption. */
+    grid-auto-rows: max-content;
+    align-content: start;
+    gap: 12px;
+    padding: 18px;
+    overflow-y: auto;
+}
+
+.candidate {
+    border: 2px solid transparent;
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    background: var(--bg);
+}
+
+.candidate:hover {
+    border-color: var(--fallback);
+}
+
+.candidate .poster {
+    border-radius: 6px 6px 0 0;
+}
+
+.candidate .meta {
+    padding: 5px 7px;
+    font-size: 11px;
+    color: var(--muted);
+}
+
+.candidates .empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    color: var(--muted);
+    padding: 30px;
+}

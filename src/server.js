@@ -3,7 +3,10 @@ import { createReadStream } from "node:fs"
 import { stat } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { listLibraries, listChildren, listMissing } from "./tree.js"
+import { listLibraries, listChildren, listMissing, findRoot } from "./tree.js"
+import { inferQuery } from "./infer.js"
+import { searchPosters } from "./sources/tmdb.js"
+import { applyPoster } from "./write.js"
 
 const PUBLIC_DIR = fileURLToPath(new URL("../public/", import.meta.url))
 
@@ -21,14 +24,15 @@ const IMAGE_TYPES = {
     ".png": "image/png"
 }
 
-// Start the web UI over the already-built library index. Read-only for now:
-// it serves the gallery and its data, but writes nothing.
+// Start the web UI over the already-built library index. Bound to loopback only:
+// the apply endpoint writes files, so the server must not be reachable off-host.
 export function startServer(index, opts = {}) {
     const port = opts.port ?? 8472
-    const server = http.createServer((req, res) => handle(index, req, res))
+    const cfg = { tmdbKey: opts.tmdbKey || null }
+    const server = http.createServer((req, res) => handle(index, cfg, req, res))
 
     return new Promise((resolve) => {
-        server.listen(port, () => {
+        server.listen(port, "127.0.0.1", () => {
             const url = `http://localhost:${port}`
             process.stderr.write(`posted: serving ${index.videos.length} videos at ${url}\n`)
             if (opts.open) openBrowser(url)
@@ -37,9 +41,13 @@ export function startServer(index, opts = {}) {
     })
 }
 
-async function handle(index, req, res) {
+async function handle(index, cfg, req, res) {
     try {
         const url = new URL(req.url, "http://localhost")
+
+        if (url.pathname === "/api/config") {
+            return sendJson(res, 200, { sources: { tmdb: Boolean(cfg.tmdbKey) } })
+        }
 
         if (url.pathname === "/api/libraries") return sendJson(res, 200, listLibraries(index))
 
@@ -53,10 +61,60 @@ async function handle(index, req, res) {
 
         if (url.pathname === "/api/poster") return servePoster(index, url.searchParams.get("path"), res)
 
-        return serveStatic(url.pathname, res)
+        // `await` matters: returning a rejected promise from inside this try would
+        // escape the catch and crash the process as an unhandled rejection.
+        if (url.pathname === "/api/search") return await search(index, cfg, url, res)
+
+        if (url.pathname === "/api/apply") return await apply(index, cfg, req, res)
+
+        return await serveStatic(url.pathname, res)
     } catch (err) {
         sendJson(res, 500, { error: err.message })
     }
+}
+
+// Resolve what to search for from the item's path, apply any UI overrides, and
+// return candidate posters.
+async function search(index, cfg, url, res) {
+    if (!cfg.tmdbKey) return sendJson(res, 400, { error: "no poster source configured (set TMDB_API_KEY)" })
+
+    const target = url.searchParams.get("path")
+    const root = target && findRoot(index, target)
+    if (!root) return sendJson(res, 404, { error: "path is not inside any library" })
+
+    const isDir = url.searchParams.get("isDir") === "1"
+    const query = inferQuery(target, isDir, root)
+
+    const typeOverride = url.searchParams.get("type")
+    const titleOverride = url.searchParams.get("title")
+    const seasonOverride = url.searchParams.get("season")
+    if (typeOverride === "movie" || typeOverride === "tv") query.type = typeOverride
+    if (titleOverride) query.title = titleOverride
+    if (seasonOverride !== null && seasonOverride !== "") query.season = Number(seasonOverride)
+    if (query.type === "movie") query.season = null
+
+    const { candidates } = await searchPosters(cfg, query)
+    return sendJson(res, 200, { query, candidates })
+}
+
+async function apply(index, cfg, req, res) {
+    if (req.method !== "POST") return sendJson(res, 405, { error: "use POST" })
+
+    const body = JSON.parse((await readBody(req)) || "{}")
+    const result = await applyPoster(index, cfg, body)
+    return sendJson(res, result.needsConfirm ? 409 : 200, result)
+}
+
+function readBody(req) {
+    return new Promise((resolve, reject) => {
+        let data = ""
+        req.on("data", (chunk) => {
+            data += chunk
+            if (data.length > 1_000_000) reject(new Error("request body too large"))
+        })
+        req.on("end", () => resolve(data))
+        req.on("error", reject)
+    })
 }
 
 // Only paths that were discovered as images during the scan are serveable, so a

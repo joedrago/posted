@@ -81,7 +81,7 @@ async function main() {
         return
     }
 
-    await startServer(index, { port: opts.port, open: opts.open })
+    await startServer(index, { port: opts.port, open: opts.open, tmdbKey: process.env.TMDB_API_KEY })
 }
 
 main()

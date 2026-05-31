@@ -1,4 +1,5 @@
 import path from "node:path"
+import { statSync } from "node:fs"
 import { resolvePoster, resolveDirPoster } from "./resolve.js"
 
 // Find the library root that contains `p` (or equals it). Returns null if `p`
@@ -83,7 +84,17 @@ export function listMissing(index) {
 }
 
 function posterFields(res) {
-    return { posterKind: res.kind, poster: res.poster, viaDir: res.viaDir }
+    // posterVersion is the file mtime: it lets the client cache poster images yet
+    // bust the cache the instant a poster is rewritten (same path, new mtime).
+    let version = null
+    if (res.poster) {
+        try {
+            version = Math.round(statSync(res.poster).mtimeMs)
+        } catch {
+            version = null
+        }
+    }
+    return { posterKind: res.kind, poster: res.poster, viaDir: res.viaDir, posterVersion: version }
 }
 
 // Crumbs from the library root down to (and including) the target directory.

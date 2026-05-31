@@ -20,6 +20,31 @@
 
         <div id="status" class="status"></div>
 
+        <div id="modal" class="modal hidden">
+            <div class="modal-box">
+                <button class="modal-close" id="modal-close" title="Close">×</button>
+                <div class="modal-head">
+                    <div class="modal-current">
+                        <div class="poster" id="modal-current-poster"></div>
+                    </div>
+                    <div class="modal-controls">
+                        <h2 id="modal-title">Choose a poster</h2>
+                        <div class="modal-target" id="modal-target"></div>
+                        <div class="search-row">
+                            <div class="type-toggle" id="type-toggle">
+                                <button data-type="movie">Movie</button>
+                                <button data-type="tv">TV</button>
+                            </div>
+                            <input type="text" id="search-title" placeholder="Title" />
+                            <input type="number" id="search-season" placeholder="Season" min="0" class="season-input" />
+                            <button id="search-go">Search</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="candidates" id="candidates"></div>
+            </div>
+        </div>
+
         <script type="module" src="/app.js"></script>
     </body>
 </html>
