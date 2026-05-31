@@ -6,6 +6,7 @@ const grid = document.getElementById("grid")
 const breadcrumb = document.getElementById("breadcrumb")
 const status = document.getElementById("status")
 const missingToggle = document.getElementById("missing-only")
+const hideDirsToggle = document.getElementById("hide-dirs")
 
 const modal = document.getElementById("modal")
 const modalTitle = document.getElementById("modal-title")
@@ -20,6 +21,7 @@ const pathSegmentsEl = document.getElementById("path-segments")
 const state = {
     path: null, // current directory when browsing; null = library list
     missingOnly: false,
+    hideDirs: false,
     picker: null // the entry currently open in the modal
 }
 
@@ -123,9 +125,12 @@ function renderBreadcrumb(crumbs) {
 }
 
 function renderGrid(entries) {
-    state.entries = entries // remembered so Bulk Fix can act on what's visible
+    // "Hide directories" drops folder entries (libraries stay so the root remains
+    // navigable). Filtering here means Bulk Fix also only sees what's visible.
+    const visible = state.hideDirs ? entries.filter((e) => e.type !== "dir") : entries
+    state.entries = visible
     grid.replaceChildren()
-    for (const entry of entries) grid.appendChild(makeCard(entry))
+    for (const entry of visible) grid.appendChild(makeCard(entry))
 }
 
 async function navigate(targetPath) {
@@ -157,7 +162,9 @@ async function render() {
         renderBreadcrumb(body.breadcrumb)
         renderGrid(body.entries)
         const videos = body.entries.filter((e) => e.type === "video").length
-        status.textContent = `${body.entries.length - videos} folders, ${videos} videos`
+        const folders = body.entries.length - videos
+        status.textContent =
+            state.hideDirs && folders ? `${videos} videos (${folders} folders hidden)` : `${folders} folders, ${videos} videos`
     } catch (err) {
         status.textContent = `error: ${err.message}`
     }
@@ -432,6 +439,11 @@ bulkClose.addEventListener("click", () => bulkModal.classList.add("hidden"))
 
 missingToggle.addEventListener("change", () => {
     state.missingOnly = missingToggle.checked
+    render()
+})
+
+hideDirsToggle.addEventListener("change", () => {
+    state.hideDirs = hideDirsToggle.checked
     render()
 })
 
