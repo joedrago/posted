@@ -2,6 +2,7 @@
 
 import { scanLibraries } from "../src/scan.js"
 import { resolvePoster } from "../src/resolve.js"
+import { startServer } from "../src/server.js"
 
 const USAGE = `posted - audit media libraries for missing posters
 
@@ -80,7 +81,7 @@ async function main() {
         return
     }
 
-    process.stderr.write("posted: web server not yet implemented; try --list\n")
+    await startServer(index, { port: opts.port, open: opts.open })
 }
 
 main()

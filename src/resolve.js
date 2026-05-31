@@ -36,6 +36,25 @@ export function resolvePoster(video, images) {
     return { kind: "missing", poster: null, viaDir: null }
 }
 
+// Resolve the effective poster for a directory itself (used for folder cards in
+// the gallery). A directory's own sidecar is <dir>.jpg; failing that it inherits
+// from the nearest ancestor below the library root, exactly like a video does.
+//
+// Returns { kind: "direct" | "fallback" | "missing", poster, viaDir }.
+export function resolveDirPoster(dirPath, root, images) {
+    const own = sidecarFor(dirPath, images)
+    if (own) return { kind: "direct", poster: own, viaDir: null }
+
+    let d = path.dirname(dirPath)
+    while (isInside(d, root)) {
+        const poster = sidecarFor(d, images)
+        if (poster) return { kind: "fallback", poster, viaDir: d }
+        d = path.dirname(d)
+    }
+
+    return { kind: "missing", poster: null, viaDir: null }
+}
+
 // True when `child` is a strict descendant of `root`. The library root itself is
 // excluded, so we never adopt a sidecar that sits outside the library.
 function isInside(child, root) {
