@@ -1,0 +1,26 @@
+{
+    "name": "posted",
+    "version": "0.1.0",
+    "description": "Audit media libraries for missing posters and fix them from a web UI",
+    "type": "module",
+    "bin": {
+        "posted": "bin/posted.js"
+    },
+    "scripts": {
+        "start": "node bin/posted.js",
+        "format": "prettier --write .",
+        "lint": "eslint ."
+    },
+    "prettier": {
+        "printWidth": 130,
+        "tabWidth": 4,
+        "trailingComma": "none",
+        "semi": false
+    },
+    "devDependencies": {
+        "@eslint/js": "^9.0.0",
+        "eslint": "^9.0.0",
+        "globals": "^15.0.0",
+        "prettier": "^3.0.0"
+    }
+}
