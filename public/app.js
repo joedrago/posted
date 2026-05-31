@@ -250,6 +250,13 @@ function renderCandidates(candidates) {
         img.loading = "lazy"
         img.src = cand.thumb
         box.appendChild(img)
+
+        if (cand.source) {
+            const src = document.createElement("span")
+            src.className = `src-badge ${cand.source}`
+            src.textContent = cand.source
+            box.appendChild(src)
+        }
         el.appendChild(box)
 
         const meta = document.createElement("div")
@@ -258,19 +265,20 @@ function renderCandidates(candidates) {
         meta.textContent = [cand.label, dims].filter(Boolean).join(" · ")
         el.appendChild(meta)
 
-        el.addEventListener("click", () => applyPoster(cand))
+        el.addEventListener("click", () => applyPoster({ imageUrl: cand.url }))
         candidatesEl.appendChild(el)
     }
 }
 
-async function applyPoster(cand, overwrite = false) {
+// `source` is either { imageUrl } (a candidate) or { uploadId } (a local upload).
+async function applyPoster(source, overwrite = false) {
     const entry = state.picker
     if (!entry) return
 
     const payload = {
         targetPath: entry.path,
         isDir: entry.type !== "video",
-        imageUrl: cand.url,
+        ...source,
         overwrite
     }
 
@@ -283,13 +291,26 @@ async function applyPoster(cand, overwrite = false) {
 
         if (status === 409 && body.needsConfirm) {
             if (window.confirm(`Overwrite the existing poster?\n\n${body.existing}`)) {
-                return applyPoster(cand, true)
+                return applyPoster(source, true)
             }
             return
         }
 
         closePicker()
         await render()
+    } catch (err) {
+        candidatesEl.replaceChildren(message(`error: ${err.message}`))
+    }
+}
+
+// Upload a local image for the open target, then apply it through the same flow.
+async function uploadAndApply(file) {
+    try {
+        candidatesEl.replaceChildren(message(`Uploading ${file.name}…`))
+        const res = await fetch("/api/upload", { method: "POST", headers: { "content-type": file.type }, body: file })
+        const body = await res.json()
+        if (!res.ok) throw new Error(body.error || res.statusText)
+        await applyPoster({ uploadId: body.uploadId })
     } catch (err) {
         candidatesEl.replaceChildren(message(`error: ${err.message}`))
     }
@@ -323,5 +344,68 @@ for (const btn of typeToggle.querySelectorAll("button")) {
         runSearch(false)
     })
 }
+
+// Upload your own image for the open target.
+const uploadInput = document.getElementById("upload-input")
+document.getElementById("upload-btn").addEventListener("click", () => uploadInput.click())
+uploadInput.addEventListener("change", () => {
+    if (uploadInput.files[0]) uploadAndApply(uploadInput.files[0])
+    uploadInput.value = ""
+})
+
+// --- settings ---------------------------------------------------------------
+
+const settingsModal = document.getElementById("settings-modal")
+const setTmdb = document.getElementById("set-tmdb")
+const setFanart = document.getElementById("set-fanart")
+const setStatus = document.getElementById("set-status")
+
+function markState(id, configured) {
+    const el = document.getElementById(id)
+    el.textContent = configured ? "✓ set" : "not set"
+    el.className = `state ${configured ? "set" : "unset"}`
+}
+
+async function openSettings() {
+    setStatus.textContent = ""
+    setTmdb.value = ""
+    setFanart.value = ""
+    try {
+        const { body } = await getJson("/api/settings")
+        markState("state-tmdb", body.tmdb)
+        markState("state-fanart", body.fanart)
+    } catch {
+        // leave states blank if unreachable
+    }
+    settingsModal.classList.remove("hidden")
+}
+
+async function saveSettings() {
+    const payload = {}
+    if (setTmdb.value.trim()) payload.tmdbKey = setTmdb.value.trim()
+    if (setFanart.value.trim()) payload.fanartKey = setFanart.value.trim()
+    setStatus.textContent = "Saving…"
+    try {
+        const { body } = await getJson("/api/settings", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(payload)
+        })
+        markState("state-tmdb", body.tmdb)
+        markState("state-fanart", body.fanart)
+        setTmdb.value = ""
+        setFanart.value = ""
+        setStatus.textContent = "Saved."
+    } catch (err) {
+        setStatus.textContent = `error: ${err.message}`
+    }
+}
+
+document.getElementById("settings-btn").addEventListener("click", openSettings)
+document.getElementById("settings-close").addEventListener("click", () => settingsModal.classList.add("hidden"))
+settingsModal.addEventListener("click", (e) => {
+    if (e.target === settingsModal) settingsModal.classList.add("hidden")
+})
+document.getElementById("set-save").addEventListener("click", saveSettings)
 
 render()

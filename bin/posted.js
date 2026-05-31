@@ -3,6 +3,7 @@
 import { scanLibraries } from "../src/scan.js"
 import { resolvePoster } from "../src/resolve.js"
 import { startServer } from "../src/server.js"
+import { loadConfig } from "../src/config.js"
 
 const USAGE = `posted - audit media libraries for missing posters
 
@@ -81,7 +82,14 @@ async function main() {
         return
     }
 
-    await startServer(index, { port: opts.port, open: opts.open, tmdbKey: process.env.TMDB_API_KEY })
+    // Env vars override the saved config file.
+    const fileCfg = loadConfig()
+    await startServer(index, {
+        port: opts.port,
+        open: opts.open,
+        tmdbKey: process.env.TMDB_API_KEY || fileCfg.tmdbKey,
+        fanartKey: process.env.FANART_API_KEY || fileCfg.fanartKey
+    })
 }
 
 main()

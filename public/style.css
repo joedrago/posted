@@ -348,6 +348,111 @@ h1 {
     border-radius: 6px 6px 0 0;
 }
 
+.candidate .src-badge {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    background: rgba(0, 0, 0, 0.65);
+}
+
+.candidate .src-badge.tmdb {
+    color: #5cd6c0;
+}
+
+.candidate .src-badge.fanart {
+    color: #f7b955;
+}
+
+.icon-btn {
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--text);
+    border-radius: 6px;
+    width: 32px;
+    height: 32px;
+    font-size: 15px;
+    cursor: pointer;
+}
+
+.icon-btn:hover {
+    border-color: var(--fallback);
+}
+
+.settings-box {
+    width: min(460px, 100%);
+    padding: 22px;
+    gap: 14px;
+}
+
+.settings-box h2 {
+    margin: 0 0 6px;
+    font-size: 17px;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 12px;
+}
+
+.field input {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 13px;
+}
+
+.field .state {
+    font-size: 11px;
+}
+
+.field .state.set {
+    color: var(--direct);
+}
+
+.field .state.unset {
+    color: var(--missing);
+}
+
+.settings-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.settings-actions button {
+    background: var(--fallback);
+    color: #0c0d10;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.muted {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.hint {
+    color: var(--line);
+    font-size: 11px;
+    margin: 6px 0 0;
+}
+
 .candidate .meta {
     padding: 5px 7px;
     font-size: 11px;

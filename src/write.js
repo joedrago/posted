@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises"
+import { writeFile, readFile } from "node:fs/promises"
 import { existsSync } from "node:fs"
 import path from "node:path"
 import { findRoot } from "./tree.js"
@@ -20,7 +20,7 @@ export function destFor(targetPath, isDir) {
 // existing .jpg unless `overwrite` is set — the server surfaces needsConfirm so
 // the UI can show its confirmation dialog. On success the in-memory index is
 // updated so the gallery reflects the new poster without a rescan.
-export async function applyPoster(index, cfg, { targetPath, isDir, imageUrl, overwrite }) {
+export async function applyPoster(index, cfg, { targetPath, isDir, imageUrl, uploadId, overwrite }) {
     const target = path.resolve(targetPath)
 
     // Gate 1: must be lexically inside a configured library root.
@@ -30,24 +30,36 @@ export async function applyPoster(index, cfg, { targetPath, isDir, imageUrl, ove
     // scan never descends into symlinks — also prevents writing through a
     // symlinked directory to somewhere outside the library.
     if (!isKnownTarget(index, target, isDir)) throw new Error("target is not a scanned video or directory")
-    // Gate 3: only download over https.
-    if (!/^https:\/\//i.test(imageUrl || "")) throw new Error("expected an https image url")
 
     const dest = destFor(target, isDir)
-    // Gate 4: never clobber an existing .jpg without explicit confirmation.
+    // Gate 3: never clobber an existing .jpg without explicit confirmation.
     if (existsSync(dest) && !overwrite) return { needsConfirm: true, existing: dest }
 
-    const res = await fetch(imageUrl)
-    if (!res.ok) throw new Error(`download failed: ${res.status}`)
-    const type = res.headers.get("content-type") || ""
-    if (!type.startsWith("image/")) throw new Error(`source is not an image (${type || "unknown"})`)
+    // Source the bytes from either a local upload (server-held token) or an https
+    // download. A client never supplies a source *path* — only a token or url.
+    const buf = uploadId ? await readUpload(cfg, uploadId) : await downloadImage(imageUrl)
 
-    // Gate 5: bounded download so the write can't be arbitrarily large.
-    const buf = await downloadCapped(res, MAX_POSTER_BYTES)
     await writeFile(dest, buf)
     index.images.set(dest.toLowerCase(), dest)
 
     return { ok: true, dest }
+}
+
+async function downloadImage(imageUrl) {
+    if (!/^https:\/\//i.test(imageUrl || "")) throw new Error("expected an https image url")
+    const res = await fetch(imageUrl)
+    if (!res.ok) throw new Error(`download failed: ${res.status}`)
+    const type = res.headers.get("content-type") || ""
+    if (!type.startsWith("image/")) throw new Error(`source is not an image (${type || "unknown"})`)
+    return downloadCapped(res, MAX_POSTER_BYTES)
+}
+
+// Resolve an upload token to its temp file. The token map is built server-side
+// from uploads we wrote, so the path is never attacker-controlled.
+async function readUpload(cfg, uploadId) {
+    const tempPath = cfg.uploads?.get(uploadId)
+    if (!tempPath) throw new Error("unknown or expired upload")
+    return readFile(tempPath)
 }
 
 // Only paths discovered by the scan are writable: a video file, a subdirectory,

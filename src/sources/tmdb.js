@@ -95,5 +95,14 @@ export async function searchPosters(cfg, { type, title, year, season }) {
         add(r.poster_path, label, {})
     }
 
-    return { candidates }
+    // `match` is the best hit; fanart.tv lookups chain off its id/external ids.
+    const match = top.length ? { id: top[0].id, type, title: top[0].title, year: top[0].year } : null
+    return { candidates, match }
+}
+
+// IMDb / TheTVDB ids for a TMDB title — fanart.tv keys movies by IMDb/TMDB id
+// and TV by TheTVDB id, so this bridges a TMDB match to a fanart.tv lookup.
+export async function externalIds(cfg, type, id) {
+    const data = await tmdbGet(cfg, `/${type}/${id}/external_ids`)
+    return { imdb_id: data.imdb_id || null, tvdb_id: data.tvdb_id || null }
 }
