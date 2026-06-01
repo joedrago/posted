@@ -3,6 +3,7 @@
 import { scanLibraries } from "../src/scan.js"
 import { resolvePoster } from "../src/resolve.js"
 import { startServer } from "../src/server.js"
+import { bulkFix } from "../src/bulk.js"
 import { loadConfig } from "../src/config.js"
 
 const USAGE = `posted - audit media libraries for missing posters
@@ -16,11 +17,13 @@ Options:
   -p, --port <n>        Port for the web UI (default: 8472)
   --open                Open the web UI in your browser on start
   --list                Print every video missing a poster, then exit
+  --bulk <path>         Fix one item's poster headlessly (no UI/scan), then exit;
+                        requires a --library that contains <path>
   -h, --help            Show this help
 `
 
 function parseArgs(argv) {
-    const opts = { libraries: [], port: 8472, open: false, list: false, help: false }
+    const opts = { libraries: [], port: 8472, open: false, list: false, bulk: null, help: false }
 
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i]
@@ -38,6 +41,9 @@ function parseArgs(argv) {
                 break
             case "--list":
                 opts.list = true
+                break
+            case "--bulk":
+                opts.bulk = argv[++i]
                 break
             case "-h":
             case "--help":
@@ -92,7 +98,33 @@ function printMissing(index) {
 async function main() {
     const opts = parseArgs(process.argv.slice(2))
 
-    if (opts.help || opts.libraries.length === 0) {
+    if (opts.help) {
+        process.stdout.write(USAGE)
+        return
+    }
+
+    // Headless single-item fix: no scan, no server. Needs a library to locate the
+    // path within and to drive inference, but never walks the whole tree.
+    if (opts.bulk != null) {
+        if (opts.libraries.length === 0) {
+            process.stderr.write("posted: --bulk requires at least one --library\n")
+            process.exitCode = 1
+            return
+        }
+        const cfg = loadConfig()
+        const ok = await bulkFix({
+            libraries: opts.libraries,
+            target: opts.bulk,
+            cfg: {
+                tmdbKey: process.env.TMDB_API_KEY || cfg.tmdbKey || null,
+                fanartKey: process.env.FANART_API_KEY || cfg.fanartKey || null
+            }
+        })
+        if (!ok) process.exitCode = 1
+        return
+    }
+
+    if (opts.libraries.length === 0) {
         process.stdout.write(USAGE)
         return
     }
