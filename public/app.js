@@ -7,6 +7,7 @@ const breadcrumb = document.getElementById("breadcrumb")
 const status = document.getElementById("status")
 const missingToggle = document.getElementById("missing-only")
 const hideDirsToggle = document.getElementById("hide-dirs")
+const sortToggle = document.getElementById("sort-toggle")
 
 const modal = document.getElementById("modal")
 const modalTitle = document.getElementById("modal-title")
@@ -22,6 +23,7 @@ const state = {
     path: null, // current directory when browsing; null = library list
     missingOnly: false,
     hideDirs: false,
+    sort: "alpha", // "alpha" (folders first, then A–Z) or "recent" (newest mtime first)
     picker: null // the entry currently open in the modal
 }
 
@@ -124,13 +126,31 @@ function renderBreadcrumb(crumbs) {
     }
 }
 
+// Order entries for display. "recent" sorts purely by modification time (newest
+// first) so freshly added media surfaces regardless of type; "alpha" keeps the
+// server's default of folders before videos, then by name. Both tie-break on
+// name for a stable, readable order.
+function sortEntries(entries) {
+    const list = [...entries]
+    if (state.sort === "recent") {
+        list.sort((a, b) => (b.mtime || 0) - (a.mtime || 0) || a.name.localeCompare(b.name))
+    } else {
+        list.sort((a, b) => {
+            if ((a.type === "video") !== (b.type === "video")) return a.type === "video" ? 1 : -1
+            return a.name.localeCompare(b.name)
+        })
+    }
+    return list
+}
+
 function renderGrid(entries) {
     // "Hide directories" drops folder entries (libraries stay so the root remains
     // navigable). Filtering here means Bulk Fix also only sees what's visible.
     const visible = state.hideDirs ? entries.filter((e) => e.type !== "dir") : entries
-    state.entries = visible
+    const sorted = sortEntries(visible)
+    state.entries = sorted
     grid.replaceChildren()
-    for (const entry of visible) grid.appendChild(makeCard(entry))
+    for (const entry of sorted) grid.appendChild(makeCard(entry))
 }
 
 async function navigate(targetPath) {
@@ -446,6 +466,15 @@ hideDirsToggle.addEventListener("change", () => {
     state.hideDirs = hideDirsToggle.checked
     render()
 })
+
+for (const btn of sortToggle.querySelectorAll("button")) {
+    btn.addEventListener("click", () => {
+        if (state.sort === btn.dataset.sort) return
+        state.sort = btn.dataset.sort
+        for (const b of sortToggle.querySelectorAll("button")) b.classList.toggle("active", b === btn)
+        render()
+    })
+}
 
 document.getElementById("modal-close").addEventListener("click", closePicker)
 modal.addEventListener("click", (e) => {

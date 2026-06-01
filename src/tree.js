@@ -18,6 +18,7 @@ export function listLibraries(index) {
         type: "library",
         path: lib.path,
         name: path.basename(lib.path),
+        mtime: mtimeOf(lib.path),
         ...posterFields(resolveDirPoster(lib.path, lib.path, index.images))
     }))
 }
@@ -37,6 +38,7 @@ export function listChildren(index, dirPath) {
                 type: "dir",
                 path: dir,
                 name: path.basename(dir),
+                mtime: mtimeOf(dir),
                 ...posterFields(resolveDirPoster(dir, root, index.images))
             })
         }
@@ -48,6 +50,7 @@ export function listChildren(index, dirPath) {
                 type: "video",
                 path: video.path,
                 name: video.name,
+                mtime: mtimeOf(video.path),
                 ...posterFields(resolvePoster(video, index.images))
             })
         }
@@ -73,6 +76,7 @@ export function listMissing(index) {
                 type: "video",
                 path: video.path,
                 name: video.name,
+                mtime: mtimeOf(video.path),
                 relative: path.relative(root, video.path),
                 library: path.basename(root),
                 ...posterFields(res)
@@ -81,6 +85,17 @@ export function listMissing(index) {
     }
     missing.sort((a, b) => a.path.localeCompare(b.path))
     return missing
+}
+
+// Modification time (ms) of a path, used as the key for the UI's "Recent" sort.
+// Returns 0 when the path can't be stat'd so such entries sort last instead of
+// throwing.
+function mtimeOf(p) {
+    try {
+        return Math.round(statSync(p).mtimeMs)
+    } catch {
+        return 0
+    }
 }
 
 function posterFields(res) {

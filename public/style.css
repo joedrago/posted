@@ -407,6 +407,29 @@ h1 {
     color: #f7b955;
 }
 
+.sort-toggle {
+    display: inline-flex;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.sort-toggle button {
+    border: none;
+    background: var(--bg);
+    color: var(--muted);
+    height: 32px;
+    padding: 0 12px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.sort-toggle button.active {
+    background: var(--fallback);
+    color: #0c0d10;
+    font-weight: 600;
+}
+
 #bulk-btn {
     border: 1px solid var(--line);
     background: var(--bg);
