@@ -7,7 +7,7 @@ export const CONFIG_FILE = path.join(CONFIG_DIR, "config.json")
 
 // Recognized secret fields. Settings writes are restricted to these keys and to
 // the fixed CONFIG_FILE path — request input never influences the destination.
-const FIELDS = ["tmdbKey", "fanartKey"]
+const FIELDS = ["tmdbKey", "fanartKey", "osKey", "osUser", "osPass"]
 
 export function loadConfig() {
     try {

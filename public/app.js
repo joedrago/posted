@@ -7,6 +7,8 @@ const breadcrumb = document.getElementById("breadcrumb")
 const status = document.getElementById("status")
 const missingToggle = document.getElementById("missing-only")
 const hideDirsToggle = document.getElementById("hide-dirs")
+const subsOnlyToggle = document.getElementById("subs-only")
+const subsFilter = document.getElementById("subs-filter")
 const sortToggle = document.getElementById("sort-toggle")
 
 const modal = document.getElementById("modal")
@@ -22,9 +24,15 @@ const pathSegmentsEl = document.getElementById("path-segments")
 const state = {
     path: null, // current directory when browsing; null = library list
     missingOnly: false,
+    subsOnly: false, // "needs subtitles" filter (only when subs mode is enabled)
     hideDirs: false,
     sort: "alpha", // "alpha" (folders first, then A–Z) or "recent" (newest mtime first)
-    picker: null // the entry currently open in the modal
+    picker: null, // the entry open in the poster modal
+    subsEnabled: false, // server started with --subs
+    subsPicker: null, // the entry open in the subtitle modal
+    subsWrote: false, // a subtitle was written this picker session (refresh on close)
+    subsOverwriteOk: false, // user is iterating — overwrite this session's .srt silently
+    libraries: [] // cached library roots, for breadcrumbs in filtered views
 }
 
 async function getJson(url, opts) {
@@ -70,6 +78,46 @@ function makeCard(entry) {
     badge.textContent = entry.posterKind === "fallback" ? "inherited" : entry.posterKind === "direct" ? "poster" : "missing"
     if (entry.posterKind === "fallback" && entry.viaDir) badge.title = `inherited from ${basename(entry.viaDir)}`
     poster.appendChild(badge)
+
+    // Subtitle overlay (only in --subs mode, only on videos): a status badge plus
+    // hover buttons to find English subtitles and to play the file in VLC.
+    if (entry.type === "video" && state.subsEnabled) {
+        const has = entry.subKind && entry.subKind !== "none"
+        const sub = document.createElement("span")
+        sub.className = `sub-badge ${has ? "has" : "none"}`
+        sub.textContent = has ? "subs" : "needs subs"
+        sub.title =
+            entry.subKind === "embedded"
+                ? "embedded subtitle track"
+                : entry.subKind === "sidecar"
+                  ? "subtitle sidecar"
+                  : "no subtitles"
+        poster.appendChild(sub)
+
+        const actions = document.createElement("div")
+        actions.className = "card-actions"
+
+        const cc = document.createElement("button")
+        cc.className = "act-btn"
+        cc.textContent = "CC"
+        cc.title = "Find English subtitles"
+        cc.addEventListener("click", (e) => {
+            e.stopPropagation()
+            openSubsPicker(entry)
+        })
+
+        const play = document.createElement("button")
+        play.className = "act-btn"
+        play.textContent = "▶"
+        play.title = "Play in VLC"
+        play.addEventListener("click", (e) => {
+            e.stopPropagation()
+            playInVlc(entry)
+        })
+
+        actions.append(cc, play)
+        poster.appendChild(actions)
+    }
 
     if (entry.type !== "video") {
         const icon = document.createElement("span")
@@ -158,13 +206,58 @@ async function navigate(targetPath) {
     await render()
 }
 
+// The flat "missing"/"needs subtitles" views are scoped to the directory you're
+// browsing (state.path); at the library list (null) they span everything.
+function scopeQuery() {
+    return state.path ? `?path=${encodeURIComponent(state.path)}` : ""
+}
+
+function scopeLabel() {
+    return state.path ? ` in ${basename(state.path)}` : ""
+}
+
+// Crumbs from the containing library root down to state.path, rebuilt client-side
+// from the cached library list so a filtered view still shows (and can re-scope
+// via) the breadcrumb.
+function crumbsFor(targetPath) {
+    const root = state.libraries.find((l) => targetPath === l.path || targetPath.startsWith(l.path + "/"))
+    if (!root) return []
+    const crumbs = [{ name: root.name, path: root.path }]
+    let acc = root.path
+    for (const part of targetPath.slice(root.path.length).split("/")) {
+        if (!part) continue
+        acc = `${acc}/${part}`
+        crumbs.push({ name: part, path: acc })
+    }
+    return crumbs
+}
+
+// In a filtered view, keep the breadcrumb visible when scoped to a directory (so
+// the scope is clear and clickable); hide it at the top-level all-libraries view.
+function renderScopeBreadcrumb() {
+    if (state.path) {
+        breadcrumb.style.visibility = "visible"
+        renderBreadcrumb(crumbsFor(state.path))
+    } else {
+        breadcrumb.style.visibility = "hidden"
+    }
+}
+
 async function render() {
     try {
         if (state.missingOnly) {
-            breadcrumb.style.visibility = "hidden"
-            const { body } = await getJson("/api/missing")
+            renderScopeBreadcrumb()
+            const { body } = await getJson(`/api/missing${scopeQuery()}`)
             renderGrid(body)
-            status.textContent = `${body.length} videos missing a poster`
+            status.textContent = `${body.length} videos missing a poster${scopeLabel()}`
+            return
+        }
+
+        if (state.subsOnly) {
+            renderScopeBreadcrumb()
+            const { body } = await getJson(`/api/subs/missing${scopeQuery()}`)
+            renderGrid(body)
+            status.textContent = `${body.length} videos missing subtitles${scopeLabel()}`
             return
         }
 
@@ -382,6 +475,221 @@ function message(text) {
     return el
 }
 
+// --- subtitle picker -------------------------------------------------------
+
+const subsModal = document.getElementById("subs-modal")
+const subsTitle = document.getElementById("subs-title")
+const subsTarget = document.getElementById("subs-target")
+const subsCurrent = document.getElementById("subs-current")
+const subListEl = document.getElementById("sub-list")
+const subsTypeToggle = document.getElementById("subs-type-toggle")
+const subsTitleInput = document.getElementById("subs-search-title")
+const subsSeasonInput = document.getElementById("subs-search-season")
+
+function setSubsActiveType(type) {
+    for (const btn of subsTypeToggle.querySelectorAll("button")) btn.classList.toggle("active", btn.dataset.type === type)
+    subsSeasonInput.style.display = type === "tv" ? "" : "none"
+}
+
+function subsCurrentType() {
+    return subsTypeToggle.querySelector("button.active")?.dataset.type || "movie"
+}
+
+// Launch a video in VLC via the server (which validates the path and spawns it).
+async function playInVlc(entry) {
+    try {
+        await getJson("/api/play", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ path: entry.path })
+        })
+        status.textContent = `Launching VLC: ${entry.name}`
+    } catch (err) {
+        status.textContent = `error: ${err.message}`
+    }
+}
+
+function openSubsPicker(entry) {
+    state.subsPicker = entry
+    state.subsWrote = false
+    state.subsOverwriteOk = false
+    subsTitle.textContent = `English subtitles — ${entry.name}`
+    subsTarget.textContent = entry.path
+
+    const has = entry.subKind && entry.subKind !== "none"
+    subsCurrent.textContent = has
+        ? entry.subKind === "embedded"
+            ? "Currently: embedded subtitle track"
+            : "Currently: subtitle sidecar present"
+        : "Currently: no subtitles"
+    subsCurrent.className = `subs-status ${has ? "has" : "none"}`
+
+    subListEl.replaceChildren()
+    subsModal.classList.remove("hidden")
+    runSubsSearch() // initial search from server-inferred title/type/season
+}
+
+function closeSubsPicker() {
+    subsModal.classList.add("hidden")
+    state.subsPicker = null
+    // Only now refresh the grid, so the item stays put while you audition
+    // subtitles and only updates/leaves the filter once you're done.
+    if (state.subsWrote) {
+        state.subsWrote = false
+        render()
+    }
+}
+
+async function runSubsSearch(useInferred = true) {
+    const entry = state.subsPicker
+    if (!entry) return
+
+    const params = new URLSearchParams({ path: entry.path })
+    // After the first (inferred) search the form drives the query.
+    if (!useInferred) {
+        params.set("type", subsCurrentType())
+        if (subsTitleInput.value.trim()) params.set("title", subsTitleInput.value.trim())
+        if (subsCurrentType() === "tv" && subsSeasonInput.value !== "") params.set("season", subsSeasonInput.value)
+    }
+
+    subListEl.replaceChildren(message("Searching…"))
+    try {
+        const { body } = await getJson(`/api/subs/search?${params.toString()}`)
+        if (useInferred && body.query) {
+            setSubsActiveType(body.query.type)
+            subsTitleInput.value = body.query.title || ""
+            subsSeasonInput.value = body.query.season ?? ""
+        }
+        renderSubCandidates(body.candidates)
+    } catch (err) {
+        subListEl.replaceChildren(message(`error: ${err.message}`))
+    }
+}
+
+function renderSubCandidates(candidates) {
+    subListEl.replaceChildren()
+    if (!candidates || candidates.length === 0) {
+        subListEl.appendChild(message("No English subtitles found. Try editing the title or switching Movie/TV."))
+        return
+    }
+
+    for (const cand of candidates) {
+        const row = document.createElement("div")
+        row.className = "sub-row"
+
+        const main = document.createElement("div")
+        main.className = "sub-main"
+        const name = document.createElement("div")
+        name.className = "sub-name"
+        name.textContent = cand.release
+        main.appendChild(name)
+
+        const tags = document.createElement("div")
+        tags.className = "sub-tags"
+        if (cand.hashMatch) tags.appendChild(subTag("hash match", "match"))
+        if (cand.downloads) tags.appendChild(subTag(`${cand.downloads.toLocaleString()} downloads`))
+        if (cand.rating) tags.appendChild(subTag(`★ ${cand.rating}`))
+        if (cand.hi) tags.appendChild(subTag("HI"))
+        if (cand.fps) tags.appendChild(subTag(`${cand.fps} fps`))
+        main.appendChild(tags)
+        row.appendChild(main)
+
+        const btn = document.createElement("button")
+        btn.className = "sub-pick"
+        btn.textContent = "Use"
+        btn.title = "Download as <basename>.srt"
+        btn.addEventListener("click", () => applySubtitle(cand.fileId, btn))
+        row.appendChild(btn)
+
+        subListEl.appendChild(row)
+    }
+}
+
+function subTag(text, extra) {
+    const el = document.createElement("span")
+    el.className = `sub-tag${extra ? " " + extra : ""}`
+    el.textContent = text
+    return el
+}
+
+// Write a chosen subtitle to <basename>.srt without leaving the dialog, so the
+// user can play it in VLC and try other candidates until satisfied. The first
+// write may need overwrite confirmation (protecting a pre-existing sidecar);
+// after that, swaps within this session overwrite silently.
+async function applySubtitle(fileId, btn) {
+    const entry = state.subsPicker
+    if (!entry) return
+
+    const restore = btn ? btn.textContent : null
+    if (btn) {
+        btn.disabled = true
+        btn.textContent = "Saving…"
+    }
+
+    try {
+        const { status: st, body } = await getJson("/api/subs/apply", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ targetPath: entry.path, fileId, overwrite: state.subsOverwriteOk })
+        })
+
+        if (st === 409 && body.needsConfirm) {
+            if (btn) {
+                btn.disabled = false
+                btn.textContent = restore
+            }
+            if (!window.confirm(`Overwrite the existing subtitle?\n\n${body.existing}`)) return
+            state.subsOverwriteOk = true
+            return applySubtitle(fileId, btn)
+        }
+
+        state.subsWrote = true
+        state.subsOverwriteOk = true
+        const left = body.remaining != null ? ` · ${body.remaining} downloads left today` : ""
+        subsCurrent.textContent = `Saved ${body.dest}${left} — check it in VLC, or pick another to replace it.`
+        subsCurrent.className = "subs-status has"
+        markApplied(btn)
+    } catch (err) {
+        if (btn) {
+            btn.disabled = false
+            btn.textContent = restore
+        }
+        subsCurrent.textContent = `error: ${err.message}`
+        subsCurrent.className = "subs-status none"
+    }
+}
+
+// Highlight the row whose subtitle is currently written; reset the others.
+function markApplied(btn) {
+    for (const b of subListEl.querySelectorAll(".sub-pick")) {
+        b.disabled = false
+        b.textContent = "Use"
+        b.classList.remove("applied")
+    }
+    if (btn) {
+        btn.textContent = "Saved ✓"
+        btn.classList.add("applied")
+    }
+}
+
+document.getElementById("subs-close").addEventListener("click", closeSubsPicker)
+subsModal.addEventListener("click", (e) => {
+    if (e.target === subsModal) closeSubsPicker()
+})
+document.getElementById("subs-search-go").addEventListener("click", () => runSubsSearch(false))
+document.getElementById("subs-play").addEventListener("click", () => {
+    if (state.subsPicker) playInVlc(state.subsPicker)
+})
+subsTitleInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") runSubsSearch(false)
+})
+for (const btn of subsTypeToggle.querySelectorAll("button")) {
+    btn.addEventListener("click", () => {
+        setSubsActiveType(btn.dataset.type)
+        runSubsSearch(false)
+    })
+}
+
 // --- bulk fix ---------------------------------------------------------------
 
 const bulkModal = document.getElementById("bulk-modal")
@@ -457,8 +765,23 @@ bulkClose.addEventListener("click", () => bulkModal.classList.add("hidden"))
 
 // --- events ----------------------------------------------------------------
 
+// "Only missing" (posters) and "Needs subtitles" are separate flat views; turning
+// one on clears the other so the grid always reflects a single filter.
 missingToggle.addEventListener("change", () => {
     state.missingOnly = missingToggle.checked
+    if (state.missingOnly && subsOnlyToggle) {
+        state.subsOnly = false
+        subsOnlyToggle.checked = false
+    }
+    render()
+})
+
+subsOnlyToggle.addEventListener("change", () => {
+    state.subsOnly = subsOnlyToggle.checked
+    if (state.subsOnly) {
+        state.missingOnly = false
+        missingToggle.checked = false
+    }
     render()
 })
 
@@ -504,6 +827,9 @@ uploadInput.addEventListener("change", () => {
 const settingsModal = document.getElementById("settings-modal")
 const setTmdb = document.getElementById("set-tmdb")
 const setFanart = document.getElementById("set-fanart")
+const setOskey = document.getElementById("set-oskey")
+const setOsuser = document.getElementById("set-osuser")
+const setOspass = document.getElementById("set-ospass")
 const setStatus = document.getElementById("set-status")
 
 function markState(id, configured) {
@@ -512,14 +838,27 @@ function markState(id, configured) {
     el.className = `state ${configured ? "set" : "unset"}`
 }
 
-async function openSettings() {
-    setStatus.textContent = ""
+function clearSettingInputs() {
     setTmdb.value = ""
     setFanart.value = ""
+    setOskey.value = ""
+    setOsuser.value = ""
+    setOspass.value = ""
+}
+
+function applySettingStates(body) {
+    markState("state-tmdb", body.tmdb)
+    markState("state-fanart", body.fanart)
+    markState("state-oskey", body.osKey)
+    markState("state-oslogin", body.osLogin)
+}
+
+async function openSettings() {
+    setStatus.textContent = ""
+    clearSettingInputs()
     try {
         const { body } = await getJson("/api/settings")
-        markState("state-tmdb", body.tmdb)
-        markState("state-fanart", body.fanart)
+        applySettingStates(body)
     } catch {
         // leave states blank if unreachable
     }
@@ -530,6 +869,9 @@ async function saveSettings() {
     const payload = {}
     if (setTmdb.value.trim()) payload.tmdbKey = setTmdb.value.trim()
     if (setFanart.value.trim()) payload.fanartKey = setFanart.value.trim()
+    if (setOskey.value.trim()) payload.osKey = setOskey.value.trim()
+    if (setOsuser.value.trim()) payload.osUser = setOsuser.value.trim()
+    if (setOspass.value.trim()) payload.osPass = setOspass.value.trim()
     setStatus.textContent = "Saving…"
     try {
         const { body } = await getJson("/api/settings", {
@@ -537,10 +879,8 @@ async function saveSettings() {
             headers: { "content-type": "application/json" },
             body: JSON.stringify(payload)
         })
-        markState("state-tmdb", body.tmdb)
-        markState("state-fanart", body.fanart)
-        setTmdb.value = ""
-        setFanart.value = ""
+        applySettingStates(body)
+        clearSettingInputs()
         setStatus.textContent = "Saved."
     } catch (err) {
         setStatus.textContent = `error: ${err.message}`
@@ -554,4 +894,25 @@ settingsModal.addEventListener("click", (e) => {
 })
 document.getElementById("set-save").addEventListener("click", saveSettings)
 
-render()
+// Learn whether the server enabled subtitle mode (--subs) before the first paint,
+// so cards render their subtitle overlay and the filter shows up.
+async function loadAppConfig() {
+    try {
+        const { body } = await getJson("/api/config")
+        state.subsEnabled = Boolean(body.subs)
+    } catch {
+        state.subsEnabled = false
+    }
+    if (subsFilter) subsFilter.hidden = !state.subsEnabled
+
+    // Cache library roots up front so a filtered view can render its breadcrumb
+    // even when entered straight from a deep subdirectory.
+    try {
+        const { body } = await getJson("/api/libraries")
+        state.libraries = body.map((l) => ({ path: l.path, name: l.name }))
+    } catch {
+        state.libraries = []
+    }
+}
+
+loadAppConfig().then(render)

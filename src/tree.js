@@ -1,6 +1,7 @@
 import path from "node:path"
 import { statSync } from "node:fs"
 import { resolvePoster, resolveDirPoster } from "./resolve.js"
+import { resolveSubs } from "./subs.js"
 
 // Find the library root that contains `p` (or equals it). Returns null if `p`
 // is not within any configured library — the basis for all path validation.
@@ -51,7 +52,8 @@ export function listChildren(index, dirPath) {
                 path: video.path,
                 name: video.name,
                 mtime: mtimeOf(video.path),
-                ...posterFields(resolvePoster(video, index.images))
+                ...posterFields(resolvePoster(video, index.images)),
+                ...subFields(index, video)
             })
         }
     }
@@ -64,11 +66,15 @@ export function listChildren(index, dirPath) {
     return { path: target, root, breadcrumb: breadcrumbFor(root, target), entries }
 }
 
-// Every video with no resolvable poster, across all libraries — the flat list
-// behind the "only missing" filter.
-export function listMissing(index) {
+// Every video with no resolvable poster — the flat list behind the "only
+// missing" filter. Scoped to videos under `scopePath` when given (the directory
+// the user is currently browsing), so the filter respects where you are; with no
+// scope it spans all libraries.
+export function listMissing(index, scopePath) {
+    const scope = scopePath ? path.resolve(scopePath) : null
     const missing = []
     for (const video of index.videos) {
+        if (scope && !isInside(video.path, scope)) continue
         const res = resolvePoster(video, index.images)
         if (res.kind === "missing") {
             const root = video.root
@@ -82,6 +88,32 @@ export function listMissing(index) {
                 ...posterFields(res)
             })
         }
+    }
+    missing.sort((a, b) => a.path.localeCompare(b.path))
+    return missing
+}
+
+// Every video with no subtitles at all (neither sidecar nor embedded track) —
+// the flat list behind the "needs subtitles" filter, scoped to `scopePath` the
+// same way as listMissing. The poster fields ride along so each card still shows
+// its artwork.
+export function listMissingSubs(index, scopePath) {
+    const scope = scopePath ? path.resolve(scopePath) : null
+    const missing = []
+    for (const video of index.videos) {
+        if (scope && !isInside(video.path, scope)) continue
+        if (resolveSubs(video, index.subsByDir).kind !== "none") continue
+        const root = video.root
+        missing.push({
+            type: "video",
+            path: video.path,
+            name: video.name,
+            mtime: mtimeOf(video.path),
+            relative: path.relative(root, video.path),
+            library: path.basename(root),
+            subKind: "none",
+            ...posterFields(resolvePoster(video, index.images))
+        })
     }
     missing.sort((a, b) => a.path.localeCompare(b.path))
     return missing
@@ -110,6 +142,13 @@ function posterFields(res) {
         }
     }
     return { posterKind: res.kind, poster: res.poster, viaDir: res.viaDir, posterVersion: version }
+}
+
+// Subtitle status for a video entry, only when subtitle scanning was enabled.
+// Returns {} otherwise so poster-only runs carry no extra fields.
+function subFields(index, video) {
+    if (!index.subsEnabled) return {}
+    return { subKind: resolveSubs(video, index.subsByDir).kind }
 }
 
 // Crumbs from the library root down to (and including) the target directory.

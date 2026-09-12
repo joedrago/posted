@@ -16,6 +16,8 @@ Options:
   -l, --library <dir>   Add a library root (repeatable)
   -p, --port <n>        Port for the web UI (default: 8472)
   --open                Open the web UI in your browser on start
+  --subs                Also audit English subtitles: flag videos with no embedded
+                        track or sidecar, and enable the in-UI subtitle picker
   --list                Print every video missing a poster, then exit
   --bulk <path>         Fix one item's poster headlessly (no UI/scan), then exit;
                         requires a --library that contains <path>
@@ -23,7 +25,7 @@ Options:
 `
 
 function parseArgs(argv) {
-    const opts = { libraries: [], port: 8472, open: false, list: false, bulk: null, help: false }
+    const opts = { libraries: [], port: 8472, open: false, subs: false, list: false, bulk: null, help: false }
 
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i]
@@ -38,6 +40,9 @@ function parseArgs(argv) {
                 break
             case "--open":
                 opts.open = true
+                break
+            case "--subs":
+                opts.subs = true
                 break
             case "--list":
                 opts.list = true
@@ -70,8 +75,27 @@ function makeScanReporter() {
     let last = 0
 
     return (stats) => {
+        // Embedded-subtitle probe phase (only in --subs mode), runs after the walk.
+        if (stats.phase === "probe") {
+            if (stats.doneProbing) {
+                if (stats.total > 0) {
+                    process.stderr.write(
+                        (isTTY ? "\r\x1b[K" : "") + `posted: probed ${stats.total} files for embedded subtitles\n`
+                    )
+                }
+                return
+            }
+            if (!isTTY) return
+            const now = Date.now()
+            if (now - last < 100) return
+            last = now
+            process.stderr.write(`\r\x1b[Kposted: probing embedded subtitles ${stats.probed}/${stats.total}`)
+            return
+        }
+
         if (stats.done) {
-            const summary = `posted: scanned ${stats.dirs} folders — ${stats.videos} videos, ${stats.images} images`
+            const subs = typeof stats.subs === "number" ? `, ${stats.subs} subtitles` : ""
+            const summary = `posted: scanned ${stats.dirs} folders — ${stats.videos} videos, ${stats.images} images${subs}`
             process.stderr.write((isTTY ? "\r\x1b[K" : "") + summary + "\n")
             return
         }
@@ -129,7 +153,8 @@ async function main() {
         return
     }
 
-    const index = await scanLibraries(opts.libraries, { onProgress: makeScanReporter() })
+    // --list only concerns posters, so skip the (potentially slow) subtitle probe.
+    const index = await scanLibraries(opts.libraries, { onProgress: makeScanReporter(), subs: opts.subs && !opts.list })
 
     if (opts.list) {
         printMissing(index)
@@ -142,7 +167,10 @@ async function main() {
         port: opts.port,
         open: opts.open,
         tmdbKey: process.env.TMDB_API_KEY || fileCfg.tmdbKey,
-        fanartKey: process.env.FANART_API_KEY || fileCfg.fanartKey
+        fanartKey: process.env.FANART_API_KEY || fileCfg.fanartKey,
+        osKey: process.env.OPENSUBTITLES_API_KEY || fileCfg.osKey,
+        osUser: process.env.OPENSUBTITLES_USERNAME || fileCfg.osUser,
+        osPass: process.env.OPENSUBTITLES_PASSWORD || fileCfg.osPass
     })
 }
 

@@ -2,6 +2,8 @@ import { writeFile, readFile } from "node:fs/promises"
 import { existsSync } from "node:fs"
 import path from "node:path"
 import { findRoot } from "./tree.js"
+import { subDest } from "./subs.js"
+import { downloadSubtitle } from "./sources/opensubtitles.js"
 
 // Hard cap on a downloaded poster. w780 JPEGs are a few hundred KB; this just
 // stops a malicious or runaway URL from writing an enormous file / exhausting
@@ -43,6 +45,40 @@ export async function applyPoster(index, cfg, { targetPath, isDir, imageUrl, upl
     index.images.set(dest.toLowerCase(), dest)
 
     return { ok: true, dest }
+}
+
+// Download a chosen OpenSubtitles file and write it beside the video as
+// <basename>.srt. Mirrors applyPoster: gates that the target is a scanned video,
+// and refuses to clobber an existing .srt unless `overwrite` is set (the server
+// surfaces needsConfirm so the UI can confirm). On success the in-memory subs
+// index is updated so the badge flips to "subtitled" without a rescan. The
+// account's remaining daily quota rides back in the result for the UI to show.
+export async function applySubtitle(index, cfg, { targetPath, fileId, overwrite }) {
+    const target = path.resolve(targetPath)
+
+    if (findRoot(index, target) === null) throw new Error("target is not inside any library")
+    const video = index.videos.find((v) => v.path === target)
+    if (!video) throw new Error("target is not a scanned video")
+    if (!fileId) throw new Error("no subtitle selected")
+
+    const dest = subDest(target)
+    if (existsSync(dest) && !overwrite) return { needsConfirm: true, existing: dest }
+
+    const { buffer, remaining } = await downloadSubtitle(cfg, fileId)
+    await writeFile(dest, buffer)
+    registerSub(index, video, dest)
+
+    return { ok: true, dest, remaining }
+}
+
+// Record a freshly written sidecar in the directory-grouped subs index so the
+// next resolveSubs sees it. Skips a duplicate entry when overwriting an existing
+// <basename>.srt that the scan already found.
+function registerSub(index, video, dest) {
+    if (!index.subsByDir) return
+    let list = index.subsByDir.get(video.dir)
+    if (!list) index.subsByDir.set(video.dir, (list = []))
+    if (!list.some((e) => e.path === dest)) list.push({ name: path.basename(dest), path: dest })
 }
 
 async function downloadImage(imageUrl) {
