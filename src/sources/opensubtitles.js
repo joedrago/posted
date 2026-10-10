@@ -4,8 +4,16 @@
 // English subtitles and lead with exact file-hash matches, which are the ones
 // most likely to already be in sync.
 
+import { readFile, writeFile, mkdir } from "node:fs/promises"
+import path from "node:path"
+import os from "node:os"
+
 const API = "https://api.opensubtitles.com/api/v1"
 const USER_AGENT = "posted v0.1.0"
+
+// Downloaded subtitles are kept here keyed by file id, so auditioning the same
+// candidate twice (or comparing it, then choosing it) spends one quota download.
+const CACHE_DIR = path.join(os.tmpdir(), "posted-subs")
 
 // Subtitles are tiny; this just stops a runaway/hostile link from filling memory.
 const MAX_SUB_BYTES = 5 * 1024 * 1024
@@ -120,4 +128,27 @@ export async function downloadSubtitle(cfg, fileId) {
     if (buffer.length > MAX_SUB_BYTES) throw new Error(`subtitle exceeds ${MAX_SUB_BYTES} bytes`)
 
     return { buffer, fileName: data.file_name || null, remaining: data.remaining ?? null }
+}
+
+// Like downloadSubtitle, but served from the temp cache when the file id has
+// already been fetched this boot. `remaining` is null on a cache hit (no request
+// was made, so the quota is unknown). Cache misses are non-fatal: a failed cache
+// write just means the next fetch downloads again.
+export async function fetchSubtitle(cfg, fileId) {
+    if (!/^\d+$/.test(String(fileId))) throw new Error("invalid subtitle file id")
+    const cached = path.join(CACHE_DIR, `${fileId}.srt`)
+    try {
+        return { buffer: await readFile(cached), remaining: null, cached: true }
+    } catch {
+        // not cached yet
+    }
+
+    const result = await downloadSubtitle(cfg, fileId)
+    try {
+        await mkdir(CACHE_DIR, { recursive: true })
+        await writeFile(cached, result.buffer)
+    } catch {
+        // non-writable temp dir: fall through with the downloaded bytes
+    }
+    return { ...result, cached: false }
 }

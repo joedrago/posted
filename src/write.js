@@ -3,7 +3,7 @@ import { existsSync } from "node:fs"
 import path from "node:path"
 import { findRoot } from "./tree.js"
 import { subDest } from "./subs.js"
-import { downloadSubtitle } from "./sources/opensubtitles.js"
+import { fetchSubtitle } from "./sources/opensubtitles.js"
 
 // Hard cap on a downloaded poster. w780 JPEGs are a few hundred KB; this just
 // stops a malicious or runaway URL from writing an enormous file / exhausting
@@ -52,7 +52,8 @@ export async function applyPoster(index, cfg, { targetPath, isDir, imageUrl, upl
 // and refuses to clobber an existing .srt unless `overwrite` is set (the server
 // surfaces needsConfirm so the UI can confirm). On success the in-memory subs
 // index is updated so the badge flips to "subtitled" without a rescan. The
-// account's remaining daily quota rides back in the result for the UI to show.
+// account's remaining daily quota rides back in the result for the UI to show
+// (null when the file came from the download cache and no quota was spent).
 export async function applySubtitle(index, cfg, { targetPath, fileId, overwrite }) {
     const target = path.resolve(targetPath)
 
@@ -64,7 +65,7 @@ export async function applySubtitle(index, cfg, { targetPath, fileId, overwrite 
     const dest = subDest(target)
     if (existsSync(dest) && !overwrite) return { needsConfirm: true, existing: dest }
 
-    const { buffer, remaining } = await downloadSubtitle(cfg, fileId)
+    const { buffer, remaining } = await fetchSubtitle(cfg, fileId)
     await writeFile(dest, buffer)
     registerSub(index, video, dest)
 

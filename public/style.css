@@ -330,6 +330,11 @@ h1 {
     min-width: 0;
 }
 
+.count-input {
+    flex: 0 0 60px;
+    min-width: 0;
+}
+
 .search-row button {
     cursor: pointer;
 }
@@ -710,6 +715,34 @@ h1 {
     background: var(--direct);
     border-color: var(--direct);
     font-weight: 600;
+}
+
+/* Sync-check verdict per candidate: how its timing differs from the saved
+   subtitle. "good" is a confident estimate, "weak" had few agreeing samples,
+   "none" found nothing to line up, "ref" marks the saved subtitle itself. */
+.sub-tag.sync {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    cursor: help;
+}
+
+.sub-tag.sync.good {
+    color: var(--direct);
+    border-color: var(--direct);
+}
+
+.sub-tag.sync.weak {
+    color: var(--missing);
+    border-color: var(--missing);
+}
+
+.sub-tag.sync.none {
+    color: var(--muted);
+}
+
+.sub-tag.sync.ref {
+    color: var(--fallback);
+    border-color: var(--fallback);
 }
 
 .sub-pick {

@@ -11,10 +11,15 @@ import { searchPosters } from "./search.js"
 import { applyPoster, applySubtitle } from "./write.js"
 import { searchSubtitles } from "./sources/opensubtitles.js"
 import { computeMovieHash } from "./subs.js"
+import { compareSubtitles } from "./sync.js"
 import { saveConfig } from "./config.js"
 
 const UPLOAD_DIR = path.join(os.tmpdir(), "posted-uploads")
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
+// Cap on candidates per sync comparison — each uncached one costs a download
+// against the OpenSubtitles daily quota.
+const MAX_COMPARE = 20
 
 const UPLOAD_EXT = {
     "image/jpeg": ".jpg",
@@ -125,6 +130,8 @@ async function handle(index, cfg, req, res) {
 
         if (url.pathname === "/api/subs/apply") return await subsApply(index, cfg, req, res)
 
+        if (url.pathname === "/api/subs/compare") return await subsCompare(index, cfg, req, res)
+
         if (url.pathname === "/api/play") return await play(index, req, res)
 
         return await serveStatic(url.pathname, res)
@@ -197,6 +204,26 @@ async function subsApply(index, cfg, req, res) {
     const body = JSON.parse((await readBody(req)) || "{}")
     const result = await applySubtitle(index, cfg, body)
     return sendJson(res, result.needsConfirm ? 409 : 200, result)
+}
+
+// Estimate how each listed OpenSubtitles candidate's timing differs from the
+// sidecar currently beside the video, so an out-of-sync pick can be swapped for
+// the right one without auditioning each in VLC. Same path gate as /api/play.
+async function subsCompare(index, cfg, req, res) {
+    if (req.method !== "POST") return sendJson(res, 405, { error: "use POST" })
+    if (!cfg.osKey) return sendJson(res, 400, { error: "no subtitle source configured (set an OpenSubtitles API key)" })
+
+    const body = JSON.parse((await readBody(req)) || "{}")
+    const target = body.targetPath ? path.resolve(body.targetPath) : null
+    if (!target || findRoot(index, target) === null) return sendJson(res, 404, { error: "path is not inside any library" })
+    const video = index.videos.find((v) => v.path === target)
+    if (!video) return sendJson(res, 404, { error: "path is not a scanned video" })
+
+    const fileIds = Array.isArray(body.fileIds) ? body.fileIds.map(String).filter((id) => /^\d+$/.test(id)) : []
+    if (fileIds.length === 0) return sendJson(res, 400, { error: "no candidates to compare" })
+    if (fileIds.length > MAX_COMPARE) return sendJson(res, 400, { error: `at most ${MAX_COMPARE} candidates per comparison` })
+
+    return sendJson(res, 200, await compareSubtitles(index, cfg, video, fileIds))
 }
 
 // Launch the chosen video in VLC so the user can eyeball subtitle sync. The path

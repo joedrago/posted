@@ -123,6 +123,21 @@
                             <input type="number" id="subs-search-season" placeholder="Season" min="0" class="season-input" />
                             <button id="subs-search-go">Search</button>
                             <button id="subs-play" title="Open this video in VLC">▶ VLC</button>
+                            <button
+                                id="subs-sync"
+                                title="Compare the saved subtitle's timing against the candidates around it (each new one costs a download)"
+                            >
+                                Sync check
+                            </button>
+                            <input
+                                type="number"
+                                id="subs-sync-count"
+                                value="8"
+                                min="1"
+                                max="20"
+                                class="count-input"
+                                title="How many neighboring candidates to compare"
+                            />
                         </div>
                     </div>
                 </div>

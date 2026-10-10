@@ -32,6 +32,13 @@ const state = {
     subsPicker: null, // the entry open in the subtitle modal
     subsWrote: false, // a subtitle was written this picker session (refresh on close)
     subsOverwriteOk: false, // user is iterating — overwrite this session's .srt silently
+
+    // Sync check: the candidates last listed (for neighbor selection), which one
+    // is written on disk, and per-fileId comparison results against that file.
+    subsCandidates: [],
+    subsAppliedFileId: null,
+    subsSync: new Map(),
+
     libraries: [] // cached library roots, for breadcrumbs in filtered views
 }
 
@@ -485,6 +492,8 @@ const subListEl = document.getElementById("sub-list")
 const subsTypeToggle = document.getElementById("subs-type-toggle")
 const subsTitleInput = document.getElementById("subs-search-title")
 const subsSeasonInput = document.getElementById("subs-search-season")
+const subsSyncBtn = document.getElementById("subs-sync")
+const subsSyncCount = document.getElementById("subs-sync-count")
 
 function setSubsActiveType(type) {
     for (const btn of subsTypeToggle.querySelectorAll("button")) btn.classList.toggle("active", btn.dataset.type === type)
@@ -513,6 +522,9 @@ function openSubsPicker(entry) {
     state.subsPicker = entry
     state.subsWrote = false
     state.subsOverwriteOk = false
+    state.subsCandidates = []
+    state.subsAppliedFileId = null
+    state.subsSync = new Map()
     subsTitle.textContent = `English subtitles — ${entry.name}`
     subsTarget.textContent = entry.path
 
@@ -567,6 +579,7 @@ async function runSubsSearch(useInferred = true) {
 }
 
 function renderSubCandidates(candidates) {
+    state.subsCandidates = candidates || []
     subListEl.replaceChildren()
     if (!candidates || candidates.length === 0) {
         subListEl.appendChild(message("No English subtitles found. Try editing the title or switching Movie/TV."))
@@ -576,6 +589,7 @@ function renderSubCandidates(candidates) {
     for (const cand of candidates) {
         const row = document.createElement("div")
         row.className = "sub-row"
+        row.dataset.fileId = String(cand.fileId)
 
         const main = document.createElement("div")
         main.className = "sub-main"
@@ -602,6 +616,7 @@ function renderSubCandidates(candidates) {
         row.appendChild(btn)
 
         subListEl.appendChild(row)
+        applySyncTag(row)
     }
 }
 
@@ -645,6 +660,10 @@ async function applySubtitle(fileId, btn) {
 
         state.subsWrote = true
         state.subsOverwriteOk = true
+        state.subsAppliedFileId = String(fileId)
+        // Offsets were relative to the previous file; drop them until re-checked.
+        state.subsSync = new Map()
+        for (const row of subListEl.querySelectorAll(".sub-row")) applySyncTag(row)
         const left = body.remaining != null ? ` · ${body.remaining} downloads left today` : ""
         subsCurrent.textContent = `Saved ${body.dest}${left} — check it in VLC, or pick another to replace it.`
         subsCurrent.className = "subs-status has"
@@ -672,6 +691,114 @@ function markApplied(btn) {
     }
 }
 
+// --- sync check ---
+// Compare the subtitle written on disk against the candidates listed around it,
+// so an out-of-sync pick can be swapped for the one whose timing differs by the
+// amount seen in VLC (VLC's own subtitle-delay readout, G/H keys, gives the
+// number to look for). Each candidate row gets a tag with its offset.
+
+// The `count` candidates nearest the saved one in the list (excluding it),
+// sliding the window when the saved one is near an end; the top `count` when we
+// don't know which candidate is on disk (a pre-existing sidecar).
+function syncNeighbors(count) {
+    const list = state.subsCandidates
+    const idx = list.findIndex((c) => String(c.fileId) === state.subsAppliedFileId)
+    if (idx < 0) return list.slice(0, count)
+    const before = list.slice(0, idx)
+    const after = list.slice(idx + 1)
+    let nBefore = Math.min(before.length, Math.floor(count / 2))
+    const nAfter = Math.min(after.length, count - nBefore)
+    nBefore = Math.min(before.length, count - nAfter)
+    return [...before.slice(before.length - nBefore), ...after.slice(0, nAfter)]
+}
+
+async function runSyncCheck() {
+    const entry = state.subsPicker
+    if (!entry) return
+
+    const count = Math.max(1, Math.min(20, Number(subsSyncCount.value) || 8))
+    const neighbors = syncNeighbors(count)
+    if (neighbors.length === 0) {
+        subsCurrent.textContent = "No other candidates to compare against."
+        subsCurrent.className = "subs-status none"
+        return
+    }
+
+    subsSyncBtn.disabled = true
+    subsSyncBtn.textContent = "Checking…"
+    subsCurrent.textContent = `Comparing ${neighbors.length} candidates against the saved subtitle…`
+    subsCurrent.className = "subs-status"
+    try {
+        const { body } = await getJson("/api/subs/compare", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ targetPath: entry.path, fileIds: neighbors.map((c) => c.fileId) })
+        })
+        for (const r of body.results) state.subsSync.set(String(r.fileId), r)
+        for (const row of subListEl.querySelectorAll(".sub-row")) applySyncTag(row)
+        const left = body.remaining != null ? ` · ${body.remaining} downloads left today` : ""
+        subsCurrent.textContent =
+            `Compared ${body.results.length} against ${basename(body.reference.path)} — ` +
+            `+ means that candidate's lines appear later than yours${left}`
+        subsCurrent.className = "subs-status has"
+    } catch (err) {
+        subsCurrent.textContent = `error: ${err.message}`
+        subsCurrent.className = "subs-status none"
+    } finally {
+        subsSyncBtn.disabled = false
+        subsSyncBtn.textContent = "Sync check"
+    }
+}
+
+// Set (or clear) a row's sync tag from state: the comparison result for its
+// fileId, or "reference" for the saved candidate once any comparison exists.
+function applySyncTag(row) {
+    row.querySelector(".sub-tag.sync")?.remove()
+    const fileId = row.dataset.fileId
+    const result = state.subsSync.get(fileId)
+    let tag = null
+    if (result) tag = syncTag(result)
+    else if (state.subsSync.size && fileId === state.subsAppliedFileId) tag = subTag("reference", "sync ref")
+    if (tag) row.querySelector(".sub-tags").prepend(tag)
+}
+
+function syncTag(result) {
+    const grade = result.confidence === "high" ? "good" : result.confidence === "low" ? "weak" : "none"
+    let text
+    if (result.kind === "offset") text = `sync ${fmtOffset(result.offset)}`
+    else if (result.kind === "drift") text = `drift ${fmtOffset(result.start.offset)} → ${fmtOffset(result.end.offset)}`
+    else if (result.kind === "error") text = "sync error"
+    else if (result.kind === "inconsistent") text = "no consistent match"
+    else text = "no match"
+
+    const tag = subTag(text, `sync ${grade}`)
+    if (result.kind === "error") {
+        tag.title = result.error
+    } else {
+        const lines = [`${result.matched}/${result.samples.length} sampled lines found, ${result.agree} agree with the estimate`]
+        if (result.kind === "drift")
+            lines.push(`${fmtTime(result.start.at)} → ${fmtTime(result.end.at)} (likely a framerate mismatch)`)
+        for (const s of result.samples) lines.push(`${fmtTime(s.at)}  ${s.offset == null ? "not found" : fmtOffset(s.offset)}`)
+        tag.title = lines.join("\n")
+    }
+    return tag
+}
+
+function fmtOffset(seconds) {
+    const r = Math.round(seconds * 100) / 100
+    if (r === 0) return "±0.00s"
+    return `${r > 0 ? "+" : "-"}${Math.abs(r).toFixed(2)}s`
+}
+
+function fmtTime(seconds) {
+    const total = Math.round(seconds)
+    const h = Math.floor(total / 3600)
+    const m = Math.floor((total % 3600) / 60)
+    const s = total % 60
+    const ms = `${String(m).padStart(h ? 2 : 1, "0")}:${String(s).padStart(2, "0")}`
+    return h ? `${h}:${ms}` : ms
+}
+
 document.getElementById("subs-close").addEventListener("click", closeSubsPicker)
 subsModal.addEventListener("click", (e) => {
     if (e.target === subsModal) closeSubsPicker()
@@ -680,6 +807,7 @@ document.getElementById("subs-search-go").addEventListener("click", () => runSub
 document.getElementById("subs-play").addEventListener("click", () => {
     if (state.subsPicker) playInVlc(state.subsPicker)
 })
+subsSyncBtn.addEventListener("click", runSyncCheck)
 subsTitleInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") runSubsSearch(false)
 })
