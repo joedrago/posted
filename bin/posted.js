@@ -4,6 +4,7 @@ import { scanLibraries } from "../src/scan.js"
 import { resolvePoster } from "../src/resolve.js"
 import { startServer } from "../src/server.js"
 import { bulkFix } from "../src/bulk.js"
+import { fillDescriptions } from "../src/describe.js"
 import { loadConfig } from "../src/config.js"
 
 const USAGE = `posted - audit media libraries for missing posters
@@ -21,11 +22,22 @@ Options:
   --list                Print every video missing a poster, then exit
   --bulk <path>         Fix one item's poster headlessly (no UI/scan), then exit;
                         requires a --library that contains <path>
+  --descriptions        Add a TMDB description to every movie's sidecar JSON that
+                        lacks one (other JSON keys are preserved), then exit
   -h, --help            Show this help
 `
 
 function parseArgs(argv) {
-    const opts = { libraries: [], port: 8472, open: false, subs: false, list: false, bulk: null, help: false }
+    const opts = {
+        libraries: [],
+        port: 8472,
+        open: false,
+        subs: false,
+        list: false,
+        bulk: null,
+        descriptions: false,
+        help: false
+    }
 
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i]
@@ -49,6 +61,9 @@ function parseArgs(argv) {
                 break
             case "--bulk":
                 opts.bulk = argv[++i]
+                break
+            case "--descriptions":
+                opts.descriptions = true
                 break
             case "-h":
             case "--help":
@@ -153,11 +168,20 @@ async function main() {
         return
     }
 
-    // --list only concerns posters, so skip the (potentially slow) subtitle probe.
-    const index = await scanLibraries(opts.libraries, { onProgress: makeScanReporter(), subs: opts.subs && !opts.list })
+    // --list and --descriptions don't concern subtitles, so skip the (potentially
+    // slow) subtitle probe.
+    const headless = opts.list || opts.descriptions
+    const index = await scanLibraries(opts.libraries, { onProgress: makeScanReporter(), subs: opts.subs && !headless })
 
     if (opts.list) {
         printMissing(index)
+        return
+    }
+
+    if (opts.descriptions) {
+        const cfg = loadConfig()
+        const ok = await fillDescriptions(index, { tmdbKey: process.env.TMDB_API_KEY || cfg.tmdbKey || null })
+        if (!ok) process.exitCode = 1
         return
     }
 

@@ -37,8 +37,17 @@ async function search(cfg, type, title, year) {
         id: r.id,
         title: r.title || r.name,
         year: yearOf(r),
-        poster_path: r.poster_path
+        poster_path: r.poster_path,
+        overview: r.overview || null
     }))
+}
+
+// The best-matching movie for a title/year, with TMDB's short plot overview
+// (null when TMDB has none). Returns null when the search has no hits.
+export async function findMovie(cfg, title, year) {
+    if (!cfg.tmdbKey) throw new Error("TMDB API key not configured")
+    const [top] = await search(cfg, "movie", title, year)
+    return top || null
 }
 
 // All poster images for a title. For a TV season we prefer season-specific

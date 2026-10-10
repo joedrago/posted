@@ -9,6 +9,11 @@ const YEAR_RE = /\b(19|20)\d{2}\b/
 // Handles the year either trailing the title ("Fight.Club.1999.1080p.BluRay")
 // or leading it ("1961 - 101 Dalmatians").
 export function parseName(rawName) {
+    // A parenthesized year ("Blade Runner 2049 (2017)", "Movie (2001, Extended)")
+    // is unambiguous, so it wins over any year-like number inside the title.
+    const paren = rawName.match(/^(.*?)\(\s*((?:19|20)\d{2})\b[^)]*\)/)
+    if (paren && /[a-z]/i.test(paren[1])) return { title: cleanTitle(paren[1].replace(/[._]+/g, " ")), year: paren[2] }
+
     let s = rawName.replace(/[._]+/g, " ")
 
     const yearMatch = s.match(YEAR_RE)
@@ -22,14 +27,16 @@ export function parseName(rawName) {
         s = /[a-z]/i.test(before) ? before : after
     }
 
-    s = s
+    return { title: cleanTitle(s), year }
+}
+
+function cleanTitle(s) {
+    return s
         .replace(/[()[\]{}]/g, " ")
         .replace(TAG_RE, " ")
         .replace(/\s+/g, " ")
         .trim()
         .replace(/^[-–—\s]+|[-–—\s]+$/g, "")
-
-    return { title: s, year }
 }
 
 // Detect a season number from a directory name like "S02" or "Season 2".
